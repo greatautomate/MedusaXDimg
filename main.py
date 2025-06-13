@@ -3,7 +3,6 @@ MedusaXD Image Generator Bot
 A comprehensive Telegram bot for AI image generation with admin controls and logging.
 """
 
-import asyncio
 import logging
 import os
 import sys
@@ -11,11 +10,11 @@ from datetime import datetime
 
 from telegram import Update, BotCommand
 from telegram.ext import (
-    Application, 
+    Updater,
     CommandHandler, 
     MessageHandler, 
-    filters, 
-    ContextTypes,
+    Filters, 
+    CallbackContext,
     CallbackQueryHandler
 )
 from telegram.error import TelegramError
@@ -36,70 +35,36 @@ logger = logging.getLogger(__name__)
 class MedusaXDBot:
     def __init__(self):
         self.config = Config()
+        self.db = None
+        self.bot_logger = None
+        self.admin_handler = None
+        self.command_handler = None
+
+    async def initialize_async_components(self):
+        """Initialize async components"""
         self.db = Database(self.config.MONGODB_URL)
+        await self.db.connect()
+
         self.bot_logger = BotLogger(self.config.BOT_TOKEN, self.config.LOG_CHANNEL_ID)
         self.admin_handler = AdminHandler(self.db, self.bot_logger, self.config)
         self.command_handler = BotCommands(self.db, self.bot_logger, self.config)
 
-    async def initialize(self):
-        """Initialize the bot and database"""
-        try:
-            await self.db.connect()
-            logger.info("Database connected successfully")
+        # Add default admin if not exists
+        if self.config.ADMIN_IDS:
+            for admin_id in self.config.ADMIN_IDS:
+                await self.db.add_admin(admin_id)
+                await self.db.add_authorized_user(admin_id)
 
-            # Add default admin if not exists
-            if self.config.ADMIN_IDS:
-                for admin_id in self.config.ADMIN_IDS:
-                    await self.db.add_admin(admin_id)
-                    await self.db.add_authorized_user(admin_id)
+        logger.info("Bot initialized successfully")
 
-            logger.info("Bot initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize bot: {e}")
-            sys.exit(1)
-
-    async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    def start_command(self, update: Update, context: CallbackContext):
         """Handle /start command"""
         user_id = update.effective_user.id
         username = update.effective_user.username or "Unknown"
 
-        # Log user interaction
-        await self.bot_logger.log_user_action(user_id, username, "/start", "Command")
-
-        # Check if bot is enabled
-        bot_status = await self.db.get_bot_status()
-        if not bot_status.get('enabled', True):
-            await update.message.reply_text(
-                "🚫 *MedusaXD Bot is currently disabled.*\n\n"
-                "Please try again later.",
-                parse_mode='Markdown'
-            )
-            return
-
-        # Check if user is authorized
-        if not await self.db.is_user_authorized(user_id):
-            await update.message.reply_text(
-                "🔒 *Access Denied*\n\n"
-                "You are not authorized to use MedusaXD Image Generator Bot.\n"
-                "Please contact an administrator for access @medusaXD",
-                parse_mode='Markdown'
-            )
-            return
-
-        # Check if user is banned
-        if await self.db.is_user_banned(user_id):
-            ban_info = await self.db.get_ban_info(user_id)
-            await update.message.reply_text(
-                f"🚫 *You are banned from using this bot*\n\n"
-                f"*Reason:* {ban_info.get('reason', 'No reason provided')}\n"
-                f"*Banned on:* {ban_info.get('banned_at', 'Unknown')}\n\n"
-                "Contact an administrator if you believe this is an error. @medusaXD",
-                parse_mode='Markdown'
-            )
-            return
-
+        # Use a simple synchronous approach for v13.x
         welcome_message = (
-            "🎨 *Welcome to MedusaXD Image Generator Bot! by @medusaXD*\n\n"
+            "🎨 *Welcome to MedusaXD Image Generator Bot!*\n\n"
             "Generate stunning AI images with simple text prompts!\n\n"
             "*Available Commands:*\n"
             "🖼️ `/generate <prompt>` - Generate an image\n"
@@ -111,90 +76,84 @@ class MedusaXDBot:
             "✨ _Let your imagination run wild!_"
         )
 
-        await update.message.reply_text(welcome_message, parse_mode='Markdown')
+        update.message.reply_text(welcome_message, parse_mode='Markdown')
 
-    async def error_handler(self, update: object, context: ContextTypes.DEFAULT_TYPE):
+    def error_handler(self, update: object, context: CallbackContext):
         """Handle errors"""
         logger.error(f"Exception while handling an update: {context.error}")
 
         if update and hasattr(update, 'effective_message'):
             try:
-                await update.effective_message.reply_text(
+                update.effective_message.reply_text(
                     "❌ *An error occurred while processing your request.*\n\n"
-                    "Please try again later or contact an administrator @medusaXD.",
+                    "Please try again later or contact an administrator.",
                     parse_mode='Markdown'
                 )
             except:
                 pass
 
-    def setup_handlers(self, app: Application):
-        """Setup all command handlers"""
-        # Basic commands
-        app.add_handler(CommandHandler("start", self.start_command))
-        app.add_handler(CommandHandler("help", self.command_handler.help_command))
-        app.add_handler(CommandHandler("generate", self.command_handler.generate_command))
-        app.add_handler(CommandHandler("models", self.command_handler.models_command))
-        app.add_handler(CommandHandler("profile", self.command_handler.profile_command))
-
-        # Admin commands
-        app.add_handler(CommandHandler("admin", self.admin_handler.admin_panel))
-        app.add_handler(CommandHandler("adduser", self.admin_handler.add_user))
-        app.add_handler(CommandHandler("removeuser", self.admin_handler.remove_user))
-        app.add_handler(CommandHandler("ban", self.admin_handler.ban_user))
-        app.add_handler(CommandHandler("unban", self.admin_handler.unban_user))
-        app.add_handler(CommandHandler("broadcast", self.admin_handler.broadcast))
-        app.add_handler(CommandHandler("botstatus", self.admin_handler.bot_status))
-        app.add_handler(CommandHandler("users", self.admin_handler.list_users))
-        app.add_handler(CommandHandler("stats", self.admin_handler.stats))
-
-        # Callback query handler for admin panel buttons
-        app.add_handler(CallbackQueryHandler(self.admin_handler.button_callback))
-
-        # Error handler
-        app.add_error_handler(self.error_handler)
-
-    async def setup_bot_commands(self, app: Application):
-        """Setup bot command menu"""
-        commands = [
-            BotCommand("start", "Start the bot"),
-            BotCommand("help", "Get help and usage instructions"),
-            BotCommand("generate", "Generate an AI image"),
-            BotCommand("models", "View available AI models"),
-            BotCommand("profile", "View your profile"),
-        ]
-
-        try:
-            await app.bot.set_my_commands(commands)
-            logger.info("Bot commands menu set successfully")
-        except Exception as e:
-            logger.error(f"Failed to set bot commands: {e}")
-
     def run(self):
-        """Run the bot - Fixed version"""
+        """Run the bot using v13.x pattern"""
         try:
-            # Initialize the bot synchronously first
-            asyncio.run(self.initialize())
+            # Initialize async components first
+            import asyncio
+            asyncio.run(self.initialize_async_components())
 
-            # Create application
-            app = Application.builder().token(self.config.BOT_TOKEN).build()
+            # Create updater
+            updater = Updater(token=self.config.BOT_TOKEN, use_context=True)
+            dispatcher = updater.dispatcher
 
-            # Setup handlers
-            self.setup_handlers(app)
+            # Add handlers
+            dispatcher.add_handler(CommandHandler("start", self.start_command))
+            dispatcher.add_handler(CommandHandler("help", self.command_handler.help_command_sync))
+            dispatcher.add_handler(CommandHandler("generate", self.command_handler.generate_command_sync))
+            dispatcher.add_handler(CommandHandler("models", self.command_handler.models_command_sync))
+            dispatcher.add_handler(CommandHandler("profile", self.command_handler.profile_command_sync))
 
-            # Setup bot commands menu
-            asyncio.run(self.setup_bot_commands(app))
+            # Admin commands
+            dispatcher.add_handler(CommandHandler("admin", self.admin_handler.admin_panel_sync))
+            dispatcher.add_handler(CommandHandler("adduser", self.admin_handler.add_user_sync))
+            dispatcher.add_handler(CommandHandler("removeuser", self.admin_handler.remove_user_sync))
+            dispatcher.add_handler(CommandHandler("ban", self.admin_handler.ban_user_sync))
+            dispatcher.add_handler(CommandHandler("unban", self.admin_handler.unban_user_sync))
+            dispatcher.add_handler(CommandHandler("broadcast", self.admin_handler.broadcast_sync))
+            dispatcher.add_handler(CommandHandler("botstatus", self.admin_handler.bot_status_sync))
+            dispatcher.add_handler(CommandHandler("users", self.admin_handler.list_users_sync))
+            dispatcher.add_handler(CommandHandler("stats", self.admin_handler.stats_sync))
+
+            # Callback query handler
+            dispatcher.add_handler(CallbackQueryHandler(self.admin_handler.button_callback_sync))
+
+            # Error handler
+            dispatcher.add_error_handler(self.error_handler)
+
+            # Set bot commands
+            try:
+                updater.bot.set_my_commands([
+                    BotCommand("start", "Start the bot"),
+                    BotCommand("help", "Get help and usage instructions"),
+                    BotCommand("generate", "Generate an AI image"),
+                    BotCommand("models", "View available AI models"),
+                    BotCommand("profile", "View your profile"),
+                ])
+                logger.info("Bot commands menu set successfully")
+            except Exception as e:
+                logger.error(f"Failed to set bot commands: {e}")
 
             # Log bot startup
             asyncio.run(self.bot_logger.log_system_event("Bot started successfully", "STARTUP"))
 
-            logger.info("MedusaXD Bot is starting...")
+            logger.info("🚀 MedusaXD Bot is starting...")
 
-            # Use the simple polling method - THIS IS THE FIX
-            app.run_polling(drop_pending_updates=True)
+            # Start polling - This should work with v13.x
+            updater.start_polling()
+            logger.info("✅ Bot is running! Press Ctrl+C to stop.")
+            updater.idle()
 
         except Exception as e:
-            logger.error(f"Failed to start bot: {e}")
+            logger.error(f"❌ Failed to start bot: {e}")
             try:
+                import asyncio
                 asyncio.run(self.bot_logger.log_system_event(f"Bot startup failed: {e}", "ERROR"))
             except:
                 pass
@@ -202,4 +161,4 @@ class MedusaXDBot:
 
 if __name__ == "__main__":
     bot = MedusaXDBot()
-    bot.run()  # Changed from asyncio.run(bot.run()) to bot.run()
+    bot.run()
