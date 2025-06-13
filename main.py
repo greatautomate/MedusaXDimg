@@ -1,5 +1,5 @@
 """
-MedusaXD Image Generator Bot - Hydrogram Version
+MedusaXD Image Generator Bot - AIWorldCreator API Version
 A comprehensive Telegram bot for AI image generation with admin controls and logging.
 """
 
@@ -63,20 +63,55 @@ class MedusaXDBot:
         welcome_message = (
             "🎨 **Welcome to MedusaXD Image Generator Bot!**\n\n"
             "Generate stunning AI images with simple text prompts!\n\n"
-            "**Available Commands:**\n"
+            "**🚀 Available Commands:**\n"
             "🖼️ `/generate <prompt>` - Generate an image\n"
-            "📊 `/models` - View available AI models\n"
+            "🤖 `/models` - View available AI models\n"
             "ℹ️ `/help` - Get detailed help\n"
-            "👤 `/profile` - View your profile\n\n"
+            "👤 `/profile` - View your profile\n"
+            "🎨 `/quick <prompt>` - Quick generation (turbo model)\n"
+            "✨ `/flux <prompt>` - High-quality generation (flux model)\n"
+            "🎭 `/creative <prompt>` - Creative generation (gptimage model)\n\n"
+            "**📐 Advanced Options:**\n"
+            "🖼️ `/portrait <prompt>` - Portrait orientation\n"
+            "🖼️ `/landscape <prompt>` - Landscape orientation\n"
+            "🖼️ `/square <prompt>` - Square orientation\n\n"
             "**Example:**\n"
             "`/generate A majestic dragon flying over a crystal castle at sunset`\n\n"
-            "✨ *Let your imagination run wild!*"
+            "✨ *Let your imagination run wild with MedusaXD!*"
         )
 
         await message.reply_text(welcome_message)
 
     async def generate_command(self, client: Client, message: Message):
-        """Handle /generate command"""
+        """Handle /generate command with model selection"""
+        await self._handle_generation(message, model="turbo", aspect_ratio="landscape")
+
+    async def quick_command(self, client: Client, message: Message):
+        """Handle /quick command - fast turbo generation"""
+        await self._handle_generation(message, model="turbo", aspect_ratio="square")
+
+    async def flux_command(self, client: Client, message: Message):
+        """Handle /flux command - high quality generation"""
+        await self._handle_generation(message, model="flux", aspect_ratio="landscape")
+
+    async def creative_command(self, client: Client, message: Message):
+        """Handle /creative command - creative GPT generation"""
+        await self._handle_generation(message, model="gptimage", aspect_ratio="portrait")
+
+    async def portrait_command(self, client: Client, message: Message):
+        """Handle /portrait command - portrait orientation"""
+        await self._handle_generation(message, model="turbo", aspect_ratio="portrait")
+
+    async def landscape_command(self, client: Client, message: Message):
+        """Handle /landscape command - landscape orientation"""
+        await self._handle_generation(message, model="flux", aspect_ratio="landscape")
+
+    async def square_command(self, client: Client, message: Message):
+        """Handle /square command - square orientation"""
+        await self._handle_generation(message, model="turbo", aspect_ratio="square")
+
+    async def _handle_generation(self, message: Message, model: str, aspect_ratio: str):
+        """Generic image generation handler"""
         user_id = message.from_user.id
         username = message.from_user.username or "Unknown"
 
@@ -88,9 +123,10 @@ class MedusaXDBot:
         command_parts = message.text.split(maxsplit=1)
         if len(command_parts) < 2:
             await message.reply_text(
-                "❌ **No prompt provided**\n\n"
-                "**Usage:** `/generate Your amazing prompt here`\n\n"
-                "**Example:** `/generate A beautiful sunset over mountains`"
+                f"❌ **No prompt provided**\n\n"
+                f"**Usage:** `{command_parts[0]} Your amazing prompt here`\n\n"
+                f"**Example:** `{command_parts[0]} A beautiful sunset over mountains`\n\n"
+                f"**Model:** {model.title()} | **Aspect:** {aspect_ratio.title()}"
             )
             return
 
@@ -108,20 +144,36 @@ class MedusaXDBot:
         # Record request for rate limiting
         await self.db.record_request(user_id)
 
+        # Get model info for display
+        model_info = self.image_generator.get_model_info()
+        model_name = model_info.get(model, {}).get("name", model.title())
+
         # Send processing message
         processing_msg = await message.reply_text(
-            f"🎨 **Generating image...**\n\n"
-            f"**Prompt:** {prompt}\n\n"
+            f"🎨 **Generating image with {model_name}...**\n\n"
+            f"**📝 Prompt:** {prompt}\n"
+            f"**🤖 Model:** {model_name}\n"
+            f"**📐 Aspect:** {aspect_ratio.title()}\n\n"
             "⏳ *This may take a few moments...*"
         )
 
         try:
+            # Test API connection first
+            if not await self.image_generator.test_connection():
+                await processing_msg.edit_text(
+                    "❌ **Image generation service temporarily unavailable**\n\n"
+                    "🔧 The AI image generation API is currently experiencing issues.\n"
+                    "Please try again in a few minutes."
+                )
+                return
+
             # Generate image
             response = await self.image_generator.generate_images(
                 prompt=prompt,
-                model="img3",
+                model=model,
                 num_images=1,
-                aspect_ratio="landscape"
+                aspect_ratio=aspect_ratio,
+                style="realistic"
             )
 
             # Delete processing message
@@ -131,22 +183,43 @@ class MedusaXDBot:
             image_url = response.data[0].url
             caption = (
                 f"🎨 **MedusaXD Generated Image**\n\n"
-                f"**Prompt:** {prompt}\n"
-                f"**Generated by:** @{username} (`{user_id}`)"
+                f"**📝 Prompt:** {prompt}\n"
+                f"**🤖 Model:** {model_name}\n"
+                f"**📐 Aspect:** {aspect_ratio.title()}\n"
+                f"**👤 Generated by:** @{username}"
             )
 
             await message.reply_photo(photo=image_url, caption=caption)
 
             # Update statistics and log
             await self.db.increment_user_generations(user_id)
-            await self.db.log_generation(user_id, username, prompt, "img3", [image_url], True)
+            await self.db.log_generation(user_id, username, prompt, model, [image_url], True)
 
-        except Exception as e:
-            logger.error(f"Image generation failed: {e}")
+        except ValueError as e:
             await processing_msg.edit_text(
-                f"❌ **Image generation failed**\n\n"
+                f"❌ **Invalid input**\n\n"
                 f"**Error:** {str(e)}\n\n"
-                "Please try again with a different prompt."
+                "Please check your prompt and try again."
+            )
+        except RuntimeError as e:
+            error_msg = str(e)
+            if "Model" in error_msg and "not supported" in error_msg:
+                await processing_msg.edit_text(
+                    f"❌ **Model Error**\n\n"
+                    f"**Error:** {error_msg}\n\n"
+                    "Available models: flux, turbo, gptimage"
+                )
+            else:
+                await processing_msg.edit_text(
+                    f"❌ **Generation failed**\n\n"
+                    f"**Error:** {error_msg}\n\n"
+                    "Please try again with a different prompt."
+                )
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            await processing_msg.edit_text(
+                "❌ **Unexpected error occurred**\n\n"
+                "Please try again later or contact an administrator."
             )
 
     async def help_command(self, client: Client, message: Message):
@@ -158,28 +231,43 @@ class MedusaXDBot:
             return
 
         help_text = (
-            "🎨 **MedusaXD Image Generator Bot - Help**\n\n"
+            "🎨 **MedusaXD Image Generator Bot - Complete Guide**\n\n"
 
-            "**🖼️ Image Generation Commands:**\n"
-            "• `/generate <prompt>` - Generate an image from text\n"
-            "• `/models` - View available AI models\n\n"
+            "**🖼️ Basic Generation Commands:**\n"
+            "• `/generate <prompt>` - Standard generation (turbo model)\n"
+            "• `/quick <prompt>` - Fast generation (square format)\n"
+            "• `/flux <prompt>` - High-quality generation (landscape)\n"
+            "• `/creative <prompt>` - Creative AI generation (portrait)\n\n"
+
+            "**📐 Orientation Commands:**\n"
+            "• `/portrait <prompt>` - Vertical/Portrait format (9:16)\n"
+            "• `/landscape <prompt>` - Horizontal/Landscape format (16:9)\n"
+            "• `/square <prompt>` - Square format (1:1)\n\n"
+
+            "**🤖 Available AI Models:**\n"
+            "• **Flux** - Professional quality, detailed artwork\n"
+            "• **Turbo** - Fast generation, good quality\n"
+            "• **GPTImage** - Creative AI, concept art\n\n"
 
             "**📊 User Commands:**\n"
+            "• `/models` - View detailed model information\n"
             "• `/profile` - View your profile and stats\n"
             "• `/help` - Show this help message\n\n"
 
-            "**🎯 Generation Examples:**\n"
-            "• `/generate A majestic dragon flying over mountains`\n"
-            "• `/generate A cyberpunk city at night, neon lights`\n"
-            "• `/generate Portrait of a wise wizard, fantasy art`\n\n"
-
-            "**Available Models:**\n"
-            "• `img3` - High-quality general images\n"
-            "• `img4` - Enhanced detail and realism\n"
-            "• `uncen` - Uncensored generation\n\n"
+            "**🎯 Example Prompts:**\n"
+            "• `/flux A majestic dragon in a fantasy landscape, highly detailed`\n"
+            "• `/quick A cute robot character, cartoon style`\n"
+            "• `/creative Abstract art with vibrant colors and flowing shapes`\n"
+            "• `/portrait A wise wizard with a long beard, fantasy art`\n\n"
 
             f"**⏱️ Rate Limits:**\n"
             f"• Max {self.config.MAX_REQUESTS_PER_PERIOD} requests per {self.config.RATE_LIMIT_MINUTES} minutes\n\n"
+
+            "**💡 Pro Tips:**\n"
+            "• Be descriptive in your prompts\n"
+            "• Specify art style, lighting, mood\n"
+            "• Use quality keywords like 'detailed', 'high resolution'\n"
+            "• Try different models for different styles\n\n"
 
             "✨ *Unleash your creativity with MedusaXD!*"
         )
@@ -194,30 +282,43 @@ class MedusaXDBot:
         if not await self._check_user_permissions(message, user_id, username):
             return
 
+        model_info = self.image_generator.get_model_info()
+
         models_text = (
             "🤖 **Available AI Models**\n\n"
 
-            "**🎨 img3** - *Standard Quality*\n"
-            "• High-quality general image generation\n"
-            "• Fast processing time\n"
-            "• Good for most use cases\n\n"
+            "**✨ Flux** - *Professional Quality*\n"
+            f"• {model_info['flux']['description']}\n"
+            f"• Best for: {model_info['flux']['best_for']}\n"
+            "• Command: `/flux <prompt>`\n\n"
 
-            "**✨ img4** - *Enhanced Quality*\n"
-            "• Superior detail and realism\n"
-            "• Advanced AI algorithms\n"
-            "• Best for professional results\n\n"
+            "**⚡ Turbo** - *Fast & Reliable*\n"
+            f"• {model_info['turbo']['description']}\n"
+            f"• Best for: {model_info['turbo']['best_for']}\n"
+            "• Commands: `/quick <prompt>`, `/generate <prompt>`\n\n"
 
-            "**🔥 uncen** - *Uncensored*\n"
-            "• No content restrictions\n"
-            "• Creative freedom\n"
-            "• Use responsibly\n\n"
+            "**🎭 GPTImage** - *Creative AI*\n"
+            f"• {model_info['gptimage']['description']}\n"
+            f"• Best for: {model_info['gptimage']['best_for']}\n"
+            "• Command: `/creative <prompt>`\n\n"
 
-            f"**Default Model:** `{self.config.DEFAULT_MODEL}`\n\n"
+            f"**🎯 Default Model:** {self.config.DEFAULT_MODEL.title()}\n\n"
 
-            "**How to use:**\n"
-            "• `/generate Your amazing prompt`\n\n"
+            "**📐 Available Formats:**\n"
+            "• Portrait (9:16) - `/portrait <prompt>`\n"
+            "• Landscape (16:9) - `/landscape <prompt>`\n"
+            "• Square (1:1) - `/square <prompt>`\n\n"
 
-            "**💡 Pro Tip:** All models produce high quality results!"
+            "**💡 Model Selection Guide:**\n"
+            "• Use **Flux** for detailed, professional artwork\n"
+            "• Use **Turbo** for quick prototypes and general use\n"
+            "• Use **GPTImage** for creative and abstract art\n\n"
+
+            "**⚙️ Technical Specs:**\n"
+            "• All models support 1024x1024+ resolution\n"
+            "• PNG format output\n"
+            "• Seed control for reproducibility\n"
+            "• Style customization available"
         )
 
         await message.reply_text(models_text)
@@ -257,7 +358,12 @@ class MedusaXDBot:
             f"• Status: {'✅ Available' if can_generate else '⏳ Limited'}\n"
             f"• Limit: {self.config.MAX_REQUESTS_PER_PERIOD} requests per {self.config.RATE_LIMIT_MINUTES} minutes\n\n"
 
-            "**🎨 Ready to create amazing images!**"
+            f"**🎨 Quick Commands:**\n"
+            f"• `/flux your prompt` - High quality\n"
+            f"• `/quick your prompt` - Fast generation\n"
+            f"• `/creative your prompt` - Creative AI\n\n"
+
+            "**🚀 Ready to create amazing images!**"
         )
 
         await message.reply_text(profile_text)
@@ -274,6 +380,25 @@ class MedusaXDBot:
         stats = await self.db.get_stats()
         bot_status = await self.db.get_bot_status()
 
+        # Create admin panel with buttons
+        keyboard = [
+            [
+                InlineKeyboardButton("👥 Users", callback_data="admin_users"),
+                InlineKeyboardButton("🚫 Bans", callback_data="admin_bans")
+            ],
+            [
+                InlineKeyboardButton("📊 Stats", callback_data="admin_stats"),
+                InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast")
+            ],
+            [
+                InlineKeyboardButton(
+                    "🔴 Disable" if bot_status.get('enabled', True) else "✅ Enable",
+                    callback_data="admin_toggle"
+                ),
+                InlineKeyboardButton("🔄 Refresh", callback_data="admin_refresh")
+            ]
+        ]
+
         admin_text = (
             "🔧 **MedusaXD Admin Panel**\n\n"
 
@@ -284,16 +409,19 @@ class MedusaXDBot:
             f"• Total Generations: `{stats.get('total_generations', 0)}`\n"
             f"• Recent (24h): `{stats.get('recent_generations_24h', 0)}`\n\n"
 
-            "**Available Admin Commands:**\n"
-            "• `/adduser <user_id>` - Add user\n"
-            "• `/removeuser <user_id>` - Remove user\n"
-            "• `/ban <user_id> [reason]` - Ban user\n"
+            "**🎛️ Available Admin Commands:**\n"
+            "• `/adduser <user_id>` - Add user to authorized list\n"
+            "• `/removeuser <user_id>` - Remove user authorization\n"
+            "• `/ban <user_id> [reason]` - Ban user from bot\n"
             "• `/unban <user_id>` - Unban user\n"
-            "• `/broadcast <message>` - Broadcast message\n"
-            "• `/stats` - Detailed statistics"
+            "• `/broadcast <message>` - Send message to all users\n"
+            "• `/stats` - View detailed statistics\n"
+            "• `/users` - List all authorized users\n\n"
+
+            "**🎛️ Use the buttons below for quick actions:**"
         )
 
-        await message.reply_text(admin_text)
+        await message.reply_text(admin_text, reply_markup=InlineKeyboardMarkup(keyboard))
 
     async def _check_user_permissions(self, message: Message, user_id: int, username: str) -> bool:
         """Check if user has permissions"""
@@ -327,7 +455,7 @@ class MedusaXDBot:
 
     def setup_handlers(self):
         """Setup all command handlers"""
-        # Register handlers using decorators
+        # Register all handlers
         @self.app.on_message(filters.command("start"))
         async def start_handler(client, message):
             await self.start_command(client, message)
@@ -335,6 +463,30 @@ class MedusaXDBot:
         @self.app.on_message(filters.command("generate"))
         async def generate_handler(client, message):
             await self.generate_command(client, message)
+
+        @self.app.on_message(filters.command("quick"))
+        async def quick_handler(client, message):
+            await self.quick_command(client, message)
+
+        @self.app.on_message(filters.command("flux"))
+        async def flux_handler(client, message):
+            await self.flux_command(client, message)
+
+        @self.app.on_message(filters.command("creative"))
+        async def creative_handler(client, message):
+            await self.creative_command(client, message)
+
+        @self.app.on_message(filters.command("portrait"))
+        async def portrait_handler(client, message):
+            await self.portrait_command(client, message)
+
+        @self.app.on_message(filters.command("landscape"))
+        async def landscape_handler(client, message):
+            await self.landscape_command(client, message)
+
+        @self.app.on_message(filters.command("square"))
+        async def square_handler(client, message):
+            await self.square_command(client, message)
 
         @self.app.on_message(filters.command("help"))
         async def help_handler(client, message):
