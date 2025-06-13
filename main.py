@@ -81,7 +81,7 @@ class MedusaXDBot:
             await update.message.reply_text(
                 "🔒 *Access Denied*\n\n"
                 "You are not authorized to use MedusaXD Image Generator Bot.\n"
-                "Please contact an administrator for access.",
+                "Please contact an administrator for access @medusaXD",
                 parse_mode='Markdown'
             )
             return
@@ -93,13 +93,13 @@ class MedusaXDBot:
                 f"🚫 *You are banned from using this bot*\n\n"
                 f"*Reason:* {ban_info.get('reason', 'No reason provided')}\n"
                 f"*Banned on:* {ban_info.get('banned_at', 'Unknown')}\n\n"
-                "Contact an administrator if you believe this is an error.",
+                "Contact an administrator if you believe this is an error. @medusaXD",
                 parse_mode='Markdown'
             )
             return
 
         welcome_message = (
-            "🎨 *Welcome to MedusaXD Image Generator Bot!*\n\n"
+            "🎨 *Welcome to MedusaXD Image Generator Bot! by @medusaXD*\n\n"
             "Generate stunning AI images with simple text prompts!\n\n"
             "*Available Commands:*\n"
             "🖼️ `/generate <prompt>` - Generate an image\n"
@@ -121,7 +121,7 @@ class MedusaXDBot:
             try:
                 await update.effective_message.reply_text(
                     "❌ *An error occurred while processing your request.*\n\n"
-                    "Please try again later or contact an administrator.",
+                    "Please try again later or contact an administrator @medusaXD.",
                     parse_mode='Markdown'
                 )
             except:
