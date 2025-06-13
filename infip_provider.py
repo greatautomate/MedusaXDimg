@@ -83,7 +83,7 @@ class MedusaXDImageGenerator:
                 response = await asyncio.to_thread(
                     self._sync_request, 
                     payload, 
-                    timeout=60  # Increased timeout for image generation
+                    timeout=60
                 )
 
                 if response and "data" in response and response["data"]:
@@ -112,7 +112,7 @@ class MedusaXDImageGenerator:
                         raise ValueError("Invalid request parameters")
                 elif e.response.status_code == 429:
                     logger.warning(f"⏱️ Rate limited on attempt {attempt + 1}")
-                    await asyncio.sleep(30)  # Wait longer for rate limits
+                    await asyncio.sleep(30)
                     continue
                 elif e.response.status_code == 500:
                     logger.warning(f"🔥 Server error on attempt {attempt + 1}")
@@ -127,7 +127,7 @@ class MedusaXDImageGenerator:
 
             # Wait between retry cycles
             if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 5  # Progressive backoff
+                wait_time = (attempt + 1) * 5
                 logger.info(f"😴 Waiting {wait_time}s before next retry...")
                 await asyncio.sleep(wait_time)
 
@@ -156,25 +156,8 @@ class MedusaXDImageGenerator:
         timeout: int = 60,
         style: str = "realistic"
     ) -> ImageResponse:
-        """
-        Generate images using AIWorldCreator API
+        """Generate images using AIWorldCreator API"""
 
-        Args:
-            prompt: Text description of the image to generate
-            model: The model to use ("flux", "turbo", or "gptimage")
-            num_images: Number of images to generate (1-4)
-            aspect_ratio: Image aspect ratio ("landscape", "portrait", "square")
-            seed: Random seed for reproducibility (optional)
-            timeout: Request timeout in seconds
-            style: Image style ("realistic", "artistic", "anime", etc.)
-
-        Returns:
-            ImageResponse: The generated images
-
-        Raises:
-            ValueError: If parameters are invalid
-            RuntimeError: If image generation fails
-        """
         # Validate parameters
         if model not in self.AVAILABLE_MODELS:
             raise ValueError(f"Model '{model}' not supported. Available models: {self.AVAILABLE_MODELS}")
@@ -190,7 +173,6 @@ class MedusaXDImageGenerator:
         if len(prompt) < 3:
             raise ValueError("Prompt must be at least 3 characters long")
 
-        # Limit prompt length
         if len(prompt) > 1000:
             prompt = prompt[:1000]
             logger.warning("⚠️ Prompt truncated to 1000 characters")
@@ -199,7 +181,7 @@ class MedusaXDImageGenerator:
         size = self.SIZE_MAPPING[aspect_ratio]
         api_aspect_ratio = self.ASPECT_RATIOS[aspect_ratio]
 
-        # Prepare request payload matching the API structure
+        # Prepare request payload
         payload = {
             "prompt": prompt,
             "model": model,
@@ -217,12 +199,11 @@ class MedusaXDImageGenerator:
         try:
             logger.info(f"🎨 Generating {num_images} image(s) with model '{model}'")
             logger.info(f"📝 Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
-            logger.info(f"📐 Size: {size} ({aspect_ratio})")
 
             # Make request with retry logic
             result = await self._make_request_with_retry(payload, max_retries=3)
 
-            # Process response - matches the API response format
+            # Process response
             result_data = []
             for item in result["data"]:
                 result_data.append(ImageData(url=item["url"]))
@@ -231,7 +212,6 @@ class MedusaXDImageGenerator:
             return ImageResponse(created=result.get("created", int(time.time())), data=result_data)
 
         except ValueError as e:
-            # Re-raise validation errors
             raise e
         except Exception as e:
             logger.error(f"❌ Image generation failed: {e}")
@@ -248,7 +228,7 @@ class MedusaXDImageGenerator:
     async def test_connection(self) -> bool:
         """Test if the API endpoint is working"""
         test_payload = {
-            "prompt": "a simple test image",
+            "prompt": "test image",
             "model": "turbo",
             "n": 1,
             "size": "1024x1024",
