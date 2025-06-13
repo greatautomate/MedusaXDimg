@@ -13,18 +13,20 @@ class Config:
         self.LOG_CHANNEL_ID = os.getenv("LOG_CHANNEL_ID")
 
         # Telegram API credentials (get from my.telegram.org)
-        self.API_ID = int(os.getenv("API_ID"))
-        self.API_HASH = os.getenv("API_HASH")
+        self.API_ID = int(os.getenv("API_ID", "0"))
+        self.API_HASH = os.getenv("API_HASH", "")
 
         # Admin user IDs
         admin_ids_str = os.getenv("ADMIN_IDS", "")
         self.ADMIN_IDS = [int(id.strip()) for id in admin_ids_str.split(",") if id.strip().isdigit()]
 
-        # Optional settings
+        # Updated settings for new API
         self.MAX_IMAGES_PER_REQUEST = int(os.getenv("MAX_IMAGES_PER_REQUEST", "4"))
         self.RATE_LIMIT_MINUTES = int(os.getenv("RATE_LIMIT_MINUTES", "5"))
         self.MAX_REQUESTS_PER_PERIOD = int(os.getenv("MAX_REQUESTS_PER_PERIOD", "10"))
-        self.DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "img3")
+        self.DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "turbo")  # Updated default
+        self.DEFAULT_STYLE = os.getenv("DEFAULT_STYLE", "realistic")
+        self.DEFAULT_ASPECT_RATIO = os.getenv("DEFAULT_ASPECT_RATIO", "landscape")
 
         self._validate_config()
 
@@ -42,3 +44,6 @@ class Config:
 
         if missing_vars:
             raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+        if not self.ADMIN_IDS:
+            raise ValueError("At least one admin ID must be specified in ADMIN_IDS")
