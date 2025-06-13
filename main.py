@@ -169,11 +169,11 @@ class MedusaXDBot:
         except Exception as e:
             logger.error(f"Failed to set bot commands: {e}")
 
-    async def run(self):
-        """Run the bot with simplified polling"""
+    def run(self):
+        """Run the bot - Fixed version"""
         try:
-            # Initialize the bot
-            await self.initialize()
+            # Initialize the bot synchronously first
+            asyncio.run(self.initialize())
 
             # Create application
             app = Application.builder().token(self.config.BOT_TOKEN).build()
@@ -182,38 +182,24 @@ class MedusaXDBot:
             self.setup_handlers(app)
 
             # Setup bot commands menu
-            await self.setup_bot_commands(app)
+            asyncio.run(self.setup_bot_commands(app))
 
             # Log bot startup
-            await self.bot_logger.log_system_event("Bot started successfully", "STARTUP")
+            asyncio.run(self.bot_logger.log_system_event("Bot started successfully", "STARTUP"))
 
             logger.info("MedusaXD Bot is starting...")
 
-            # Start the bot with proper polling method
-            await app.run_polling(
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES,
-                stop_signals=None  # Handle stop signals manually
-            )
+            # Use the simple polling method - THIS IS THE FIX
+            app.run_polling(drop_pending_updates=True)
 
         except Exception as e:
             logger.error(f"Failed to start bot: {e}")
             try:
-                await self.bot_logger.log_system_event(f"Bot startup failed: {e}", "ERROR")
+                asyncio.run(self.bot_logger.log_system_event(f"Bot startup failed: {e}", "ERROR"))
             except:
                 pass
             sys.exit(1)
 
-def main():
-    """Main entry point"""
-    try:
-        bot = MedusaXDBot()
-        asyncio.run(bot.run())
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Fatal error: {e}")
-        sys.exit(1)
-
 if __name__ == "__main__":
-    main()
+    bot = MedusaXDBot()
+    bot.run()  # Changed from asyncio.run(bot.run()) to bot.run()
