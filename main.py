@@ -11,9 +11,7 @@ from hydrogram.types import Message, CallbackQuery, InlineKeyboardButton, Inline
 
 from config import Config
 from database import Database
-from admin import AdminHandler
-from commands import CommandHandler as BotCommands
-from logger import BotLogger
+from infip_provider import MedusaXDImageGenerator
 
 # Configure logging
 logging.basicConfig(
@@ -26,16 +24,14 @@ class MedusaXDBot:
     def __init__(self):
         self.config = Config()
         self.db = Database(self.config.MONGODB_URL)
-        self.bot_logger = BotLogger(self.config.BOT_TOKEN, self.config.LOG_CHANNEL_ID)
-        self.admin_handler = AdminHandler(self.db, self.bot_logger, self.config)
-        self.command_handler = BotCommands(self.db, self.bot_logger, self.config)
+        self.image_generator = MedusaXDImageGenerator()
 
         # Initialize Hydrogram client
         self.app = Client(
             "medusaxd_bot",
             bot_token=self.config.BOT_TOKEN,
-            api_id=self.config.API_ID,  # You'll need to get this from my.telegram.org
-            api_hash=self.config.API_HASH  # You'll need to get this from my.telegram.org
+            api_id=self.config.API_ID,
+            api_hash=self.config.API_HASH
         )
 
     async def initialize(self):
@@ -55,12 +51,14 @@ class MedusaXDBot:
             logger.error(f"Failed to initialize bot: {e}")
             raise
 
-    # Command handlers
-    @staticmethod
-    async def start_command(client: Client, message: Message):
+    async def start_command(self, client: Client, message: Message):
         """Handle /start command"""
         user_id = message.from_user.id
         username = message.from_user.username or "Unknown"
+
+        # Check permissions
+        if not await self._check_user_permissions(message, user_id, username):
+            return
 
         welcome_message = (
             "🎨 **Welcome to MedusaXD Image Generator Bot!**\n\n"
@@ -87,7 +85,8 @@ class MedusaXDBot:
             return
 
         # Get prompt
-        if len(message.command) < 2:
+        command_parts = message.text.split(maxsplit=1)
+        if len(command_parts) < 2:
             await message.reply_text(
                 "❌ **No prompt provided**\n\n"
                 "**Usage:** `/generate Your amazing prompt here`\n\n"
@@ -95,7 +94,7 @@ class MedusaXDBot:
             )
             return
 
-        prompt = " ".join(message.command[1:])
+        prompt = command_parts[1]
 
         # Check rate limit
         if not await self.db.check_rate_limit(user_id, self.config.RATE_LIMIT_MINUTES, self.config.MAX_REQUESTS_PER_PERIOD):
@@ -117,8 +116,8 @@ class MedusaXDBot:
         )
 
         try:
-            # Generate image using your existing image generator
-            response = await self.command_handler.image_generator.generate_images(
+            # Generate image
+            response = await self.image_generator.generate_images(
                 prompt=prompt,
                 model="img3",
                 num_images=1,
@@ -141,7 +140,6 @@ class MedusaXDBot:
             # Update statistics and log
             await self.db.increment_user_generations(user_id)
             await self.db.log_generation(user_id, username, prompt, "img3", [image_url], True)
-            await self.bot_logger.log_image_generation(user_id, username, prompt, "img3", "landscape", [image_url])
 
         except Exception as e:
             logger.error(f"Image generation failed: {e}")
@@ -150,6 +148,152 @@ class MedusaXDBot:
                 f"**Error:** {str(e)}\n\n"
                 "Please try again with a different prompt."
             )
+
+    async def help_command(self, client: Client, message: Message):
+        """Handle /help command"""
+        user_id = message.from_user.id
+        username = message.from_user.username or "Unknown"
+
+        if not await self._check_user_permissions(message, user_id, username):
+            return
+
+        help_text = (
+            "🎨 **MedusaXD Image Generator Bot - Help**\n\n"
+
+            "**🖼️ Image Generation Commands:**\n"
+            "• `/generate <prompt>` - Generate an image from text\n"
+            "• `/models` - View available AI models\n\n"
+
+            "**📊 User Commands:**\n"
+            "• `/profile` - View your profile and stats\n"
+            "• `/help` - Show this help message\n\n"
+
+            "**🎯 Generation Examples:**\n"
+            "• `/generate A majestic dragon flying over mountains`\n"
+            "• `/generate A cyberpunk city at night, neon lights`\n"
+            "• `/generate Portrait of a wise wizard, fantasy art`\n\n"
+
+            "**Available Models:**\n"
+            "• `img3` - High-quality general images\n"
+            "• `img4` - Enhanced detail and realism\n"
+            "• `uncen` - Uncensored generation\n\n"
+
+            f"**⏱️ Rate Limits:**\n"
+            f"• Max {self.config.MAX_REQUESTS_PER_PERIOD} requests per {self.config.RATE_LIMIT_MINUTES} minutes\n\n"
+
+            "✨ *Unleash your creativity with MedusaXD!*"
+        )
+
+        await message.reply_text(help_text)
+
+    async def models_command(self, client: Client, message: Message):
+        """Handle /models command"""
+        user_id = message.from_user.id
+        username = message.from_user.username or "Unknown"
+
+        if not await self._check_user_permissions(message, user_id, username):
+            return
+
+        models_text = (
+            "🤖 **Available AI Models**\n\n"
+
+            "**🎨 img3** - *Standard Quality*\n"
+            "• High-quality general image generation\n"
+            "• Fast processing time\n"
+            "• Good for most use cases\n\n"
+
+            "**✨ img4** - *Enhanced Quality*\n"
+            "• Superior detail and realism\n"
+            "• Advanced AI algorithms\n"
+            "• Best for professional results\n\n"
+
+            "**🔥 uncen** - *Uncensored*\n"
+            "• No content restrictions\n"
+            "• Creative freedom\n"
+            "• Use responsibly\n\n"
+
+            f"**Default Model:** `{self.config.DEFAULT_MODEL}`\n\n"
+
+            "**How to use:**\n"
+            "• `/generate Your amazing prompt`\n\n"
+
+            "**💡 Pro Tip:** All models produce high quality results!"
+        )
+
+        await message.reply_text(models_text)
+
+    async def profile_command(self, client: Client, message: Message):
+        """Handle /profile command"""
+        user_id = message.from_user.id
+        username = message.from_user.username or "Unknown"
+
+        if not await self._check_user_permissions(message, user_id, username):
+            return
+
+        # Get user data
+        users = await self.db.get_authorized_users()
+        user_data = next((u for u in users if u['user_id'] == user_id), None)
+
+        if not user_data:
+            await message.reply_text("❌ **Profile not found**")
+            return
+
+        # Check rate limit status
+        can_generate = await self.db.check_rate_limit(
+            user_id, 
+            self.config.RATE_LIMIT_MINUTES, 
+            self.config.MAX_REQUESTS_PER_PERIOD
+        )
+
+        profile_text = (
+            f"👤 **Profile: {username}**\n\n"
+
+            f"**📊 Statistics:**\n"
+            f"• User ID: `{user_id}`\n"
+            f"• Total Generations: `{user_data.get('total_generations', 0)}`\n"
+            f"• Member Since: `{user_data.get('authorized_at', 'Unknown').strftime('%Y-%m-%d') if user_data.get('authorized_at') else 'Unknown'}`\n\n"
+
+            f"**⚡ Rate Limit Status:**\n"
+            f"• Status: {'✅ Available' if can_generate else '⏳ Limited'}\n"
+            f"• Limit: {self.config.MAX_REQUESTS_PER_PERIOD} requests per {self.config.RATE_LIMIT_MINUTES} minutes\n\n"
+
+            "**🎨 Ready to create amazing images!**"
+        )
+
+        await message.reply_text(profile_text)
+
+    async def admin_command(self, client: Client, message: Message):
+        """Handle /admin command"""
+        user_id = message.from_user.id
+
+        if not await self.db.is_admin(user_id):
+            await message.reply_text("❌ **Access Denied** - Admin only command.")
+            return
+
+        # Get statistics
+        stats = await self.db.get_stats()
+        bot_status = await self.db.get_bot_status()
+
+        admin_text = (
+            "🔧 **MedusaXD Admin Panel**\n\n"
+
+            f"**📊 Bot Statistics:**\n"
+            f"• Status: {'✅ Enabled' if bot_status.get('enabled', True) else '🔴 Disabled'}\n"
+            f"• Total Users: `{stats.get('total_users', 0)}`\n"
+            f"• Banned Users: `{stats.get('total_banned', 0)}`\n"
+            f"• Total Generations: `{stats.get('total_generations', 0)}`\n"
+            f"• Recent (24h): `{stats.get('recent_generations_24h', 0)}`\n\n"
+
+            "**Available Admin Commands:**\n"
+            "• `/adduser <user_id>` - Add user\n"
+            "• `/removeuser <user_id>` - Remove user\n"
+            "• `/ban <user_id> [reason]` - Ban user\n"
+            "• `/unban <user_id>` - Unban user\n"
+            "• `/broadcast <message>` - Broadcast message\n"
+            "• `/stats` - Detailed statistics"
+        )
+
+        await message.reply_text(admin_text)
 
     async def _check_user_permissions(self, message: Message, user_id: int, username: str) -> bool:
         """Check if user has permissions"""
@@ -163,7 +307,8 @@ class MedusaXDBot:
         if not await self.db.is_user_authorized(user_id):
             await message.reply_text(
                 "🔒 **Access Denied**\n\n"
-                "You are not authorized to use MedusaXD Image Generator Bot."
+                "You are not authorized to use MedusaXD Image Generator Bot.\n"
+                "Please contact an administrator for access."
             )
             return False
 
@@ -176,28 +321,36 @@ class MedusaXDBot:
             )
             return False
 
+        # Update user activity
+        await self.db.update_user_activity(user_id, username)
         return True
 
     def setup_handlers(self):
         """Setup all command handlers"""
-        # Basic commands
-        self.app.on_message(filters.command("start"))(self.start_command)
-        self.app.on_message(filters.command("generate"))(self.generate_command)
-        self.app.on_message(filters.command("help"))(self.command_handler.help_command)
-        self.app.on_message(filters.command("models"))(self.command_handler.models_command)
-        self.app.on_message(filters.command("profile"))(self.command_handler.profile_command)
+        # Register handlers using decorators
+        @self.app.on_message(filters.command("start"))
+        async def start_handler(client, message):
+            await self.start_command(client, message)
 
-        # Admin commands
-        self.app.on_message(filters.command("admin"))(self.admin_handler.admin_panel)
-        self.app.on_message(filters.command("adduser"))(self.admin_handler.add_user)
-        self.app.on_message(filters.command("removeuser"))(self.admin_handler.remove_user)
-        self.app.on_message(filters.command("ban"))(self.admin_handler.ban_user)
-        self.app.on_message(filters.command("unban"))(self.admin_handler.unban_user)
-        self.app.on_message(filters.command("broadcast"))(self.admin_handler.broadcast)
-        self.app.on_message(filters.command("stats"))(self.admin_handler.stats)
+        @self.app.on_message(filters.command("generate"))
+        async def generate_handler(client, message):
+            await self.generate_command(client, message)
 
-        # Callback query handler
-        self.app.on_callback_query()(self.admin_handler.button_callback)
+        @self.app.on_message(filters.command("help"))
+        async def help_handler(client, message):
+            await self.help_command(client, message)
+
+        @self.app.on_message(filters.command("models"))
+        async def models_handler(client, message):
+            await self.models_command(client, message)
+
+        @self.app.on_message(filters.command("profile"))
+        async def profile_handler(client, message):
+            await self.profile_command(client, message)
+
+        @self.app.on_message(filters.command("admin"))
+        async def admin_handler(client, message):
+            await self.admin_command(client, message)
 
     async def run(self):
         """Run the bot"""
@@ -205,21 +358,15 @@ class MedusaXDBot:
             await self.initialize()
             self.setup_handlers()
 
-            await self.bot_logger.log_system_event("Bot started successfully", "STARTUP")
-            logger.info("🚀 MedusaXD Bot is starting...")
+            logger.info("🚀 MedusaXD Bot starting...")
 
-            await self.app.start()
-            logger.info("✅ Bot is running!")
-
-            # Keep the bot running
-            await asyncio.Event().wait()
+            async with self.app:
+                logger.info("✅ Bot is running!")
+                await asyncio.Event().wait()
 
         except Exception as e:
             logger.error(f"Failed to start bot: {e}")
-            await self.bot_logger.log_system_event(f"Bot startup failed: {e}", "ERROR")
             raise
-        finally:
-            await self.app.stop()
 
 async def main():
     """Main entry point"""
