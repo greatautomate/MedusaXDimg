@@ -1,11 +1,13 @@
 """
-MedusaXD Image Generator - InfipAI Provider
-Rebranded image generation provider for MedusaXD Bot
+MedusaXD Image Generator - AIWorldCreator Provider
+Enhanced image generation provider for MedusaXD Bot using aiworldcreator.com API
 """
 
 import requests
-from typing import Optional, List
+import asyncio
+import random
 import time
+from typing import Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,49 +24,149 @@ class ImageResponse:
 
 class MedusaXDImageGenerator:
     """
-    MedusaXD Image Generator using InfipAI API
-    Generates high-quality AI images from text prompts
+    MedusaXD Image Generator using AIWorldCreator API
+    High-quality AI image generation with multiple models
     """
 
-    AVAILABLE_MODELS = ["img3", "img4", "uncen"]
+    # Updated models based on API documentation
+    AVAILABLE_MODELS = ["flux", "turbo", "gptimage"]
+
     ASPECT_RATIOS = {
-        "landscape": "IMAGE_ASPECT_RATIO_LANDSCAPE",
-        "portrait": "IMAGE_ASPECT_RATIO_PORTRAIT", 
-        "square": "IMAGE_ASPECT_RATIO_SQUARE"
+        "landscape": "16:9",
+        "portrait": "9:16", 
+        "square": "1:1"
     }
+
+    SIZE_MAPPING = {
+        "landscape": "1344x768",
+        "portrait": "768x1344",
+        "square": "1024x1024"
+    }
+
+    # Main API endpoint
+    API_ENDPOINT = "https://aiworldcreator.com/v1/images/generations"
 
     def __init__(self):
         """Initialize the MedusaXD Image Generator"""
-        self.api_endpoint = "https://api.infip.pro/generate"
         self.session = requests.Session()
 
-        # Set up headers
-        self.headers = {
+        # User agents for better compatibility
+        self.user_agents = [
+            "MedusaXD-Bot/2.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "AIWorldCreator-Client/1.0"
+        ]
+
+    def _get_headers(self):
+        """Get request headers"""
+        return {
             "accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "MedusaXD-Bot/1.0"
+            "User-Agent": random.choice(self.user_agents)
         }
-        self.session.headers.update(self.headers)
+
+    async def _make_request_with_retry(self, payload: dict, max_retries: int = 3) -> dict:
+        """Make API request with retry logic"""
+
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"🎨 Attempt {attempt + 1}/{max_retries} - Generating image...")
+
+                # Add delay between retries
+                if attempt > 0:
+                    delay = random.uniform(2, 5)
+                    logger.info(f"⏳ Waiting {delay:.1f}s before retry...")
+                    await asyncio.sleep(delay)
+
+                # Make the request
+                response = await asyncio.to_thread(
+                    self._sync_request, 
+                    payload, 
+                    timeout=60  # Increased timeout for image generation
+                )
+
+                if response and "data" in response and response["data"]:
+                    logger.info(f"✅ Successfully generated image on attempt {attempt + 1}")
+                    return response
+                else:
+                    logger.warning(f"⚠️ Empty response on attempt {attempt + 1}")
+
+            except requests.exceptions.Timeout:
+                logger.warning(f"⏰ Timeout on attempt {attempt + 1}")
+                continue
+
+            except requests.exceptions.ConnectionError:
+                logger.warning(f"🔌 Connection error on attempt {attempt + 1}")
+                continue
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 400:
+                    # Bad request - likely invalid parameters
+                    try:
+                        error_data = e.response.json()
+                        if "error" in error_data:
+                            error_msg = error_data["error"].get("message", "Invalid request")
+                            raise ValueError(f"API Error: {error_msg}")
+                    except:
+                        raise ValueError("Invalid request parameters")
+                elif e.response.status_code == 429:
+                    logger.warning(f"⏱️ Rate limited on attempt {attempt + 1}")
+                    await asyncio.sleep(30)  # Wait longer for rate limits
+                    continue
+                elif e.response.status_code == 500:
+                    logger.warning(f"🔥 Server error on attempt {attempt + 1}")
+                    continue
+                else:
+                    logger.error(f"❌ HTTP error {e.response.status_code} on attempt {attempt + 1}")
+                    continue
+
+            except Exception as e:
+                logger.error(f"❌ Unexpected error on attempt {attempt + 1}: {e}")
+                continue
+
+            # Wait between retry cycles
+            if attempt < max_retries - 1:
+                wait_time = (attempt + 1) * 5  # Progressive backoff
+                logger.info(f"😴 Waiting {wait_time}s before next retry...")
+                await asyncio.sleep(wait_time)
+
+        raise RuntimeError("Failed to generate image after maximum retries")
+
+    def _sync_request(self, payload: dict, timeout: int) -> dict:
+        """Make synchronous request"""
+        headers = self._get_headers()
+
+        response = self.session.post(
+            self.API_ENDPOINT,
+            json=payload,
+            headers=headers,
+            timeout=timeout
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def generate_images(
         self,
         prompt: str,
-        model: str = "img3",
+        model: str = "turbo",
         num_images: int = 1,
         aspect_ratio: str = "landscape",
         seed: Optional[int] = None,
-        timeout: int = 60
+        timeout: int = 60,
+        style: str = "realistic"
     ) -> ImageResponse:
         """
-        Generate images using MedusaXD AI
+        Generate images using AIWorldCreator API
 
         Args:
             prompt: Text description of the image to generate
-            model: The model to use ("img3", "img4", or "uncen")
+            model: The model to use ("flux", "turbo", or "gptimage")
             num_images: Number of images to generate (1-4)
             aspect_ratio: Image aspect ratio ("landscape", "portrait", "square")
             seed: Random seed for reproducibility (optional)
             timeout: Request timeout in seconds
+            style: Image style ("realistic", "artistic", "anime", etc.)
 
         Returns:
             ImageResponse: The generated images
@@ -83,49 +185,57 @@ class MedusaXDImageGenerator:
         if aspect_ratio not in self.ASPECT_RATIOS:
             aspect_ratio = "landscape"
 
-        # Map aspect ratio
+        # Clean and validate prompt
+        prompt = prompt.strip()
+        if len(prompt) < 3:
+            raise ValueError("Prompt must be at least 3 characters long")
+
+        # Limit prompt length
+        if len(prompt) > 1000:
+            prompt = prompt[:1000]
+            logger.warning("⚠️ Prompt truncated to 1000 characters")
+
+        # Map aspect ratio to size
+        size = self.SIZE_MAPPING[aspect_ratio]
         api_aspect_ratio = self.ASPECT_RATIOS[aspect_ratio]
 
-        # Prepare request payload
+        # Prepare request payload matching the API structure
         payload = {
             "prompt": prompt,
-            "num_images": num_images,
-            "seed": seed if seed is not None else 0,
+            "model": model,
+            "n": num_images,
+            "size": size,
+            "response_format": "url",
+            "user": "medusaxd-bot",
+            "style": style,
             "aspect_ratio": api_aspect_ratio,
-            "models": model
+            "timeout": timeout,
+            "image_format": "png",
+            "seed": seed if seed is not None else random.randint(1, 1000000)
         }
 
         try:
-            logger.info(f"🎨 Generating {num_images} image(s) with model {model}")
+            logger.info(f"🎨 Generating {num_images} image(s) with model '{model}'")
+            logger.info(f"📝 Prompt: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
+            logger.info(f"📐 Size: {size} ({aspect_ratio})")
 
-            # Make API request
-            response = self.session.post(
-                self.api_endpoint,
-                json=payload,
-                timeout=timeout
-            )
-            response.raise_for_status()
+            # Make request with retry logic
+            result = await self._make_request_with_retry(payload, max_retries=3)
 
-            # Parse response
-            result = response.json()
-
-            if "images" not in result or not result["images"]:
-                raise RuntimeError("No images returned from MedusaXD AI API")
-
-            # Process response
+            # Process response - matches the API response format
             result_data = []
-            for image_url in result["images"]:
-                result_data.append(ImageData(url=image_url))
+            for item in result["data"]:
+                result_data.append(ImageData(url=item["url"]))
 
             logger.info(f"✅ Successfully generated {len(result_data)} image(s)")
-            return ImageResponse(created=int(time.time()), data=result_data)
+            return ImageResponse(created=result.get("created", int(time.time())), data=result_data)
 
-        except requests.RequestException as e:
-            logger.error(f"❌ API request failed: {e}")
-            raise RuntimeError(f"Failed to generate image: {e}")
+        except ValueError as e:
+            # Re-raise validation errors
+            raise e
         except Exception as e:
-            logger.error(f"❌ Unexpected error: {e}")
-            raise RuntimeError(f"Unexpected error during image generation: {e}")
+            logger.error(f"❌ Image generation failed: {e}")
+            raise RuntimeError(f"Failed to generate image: {e}")
 
     def get_models(self) -> List[str]:
         """Get available models"""
@@ -134,3 +244,56 @@ class MedusaXDImageGenerator:
     def get_aspect_ratios(self) -> List[str]:
         """Get available aspect ratios"""
         return list(self.ASPECT_RATIOS.keys())
+
+    async def test_connection(self) -> bool:
+        """Test if the API endpoint is working"""
+        test_payload = {
+            "prompt": "a simple test image",
+            "model": "turbo",
+            "n": 1,
+            "size": "1024x1024",
+            "response_format": "url",
+            "user": "test-user",
+            "style": "realistic",
+            "aspect_ratio": "1:1",
+            "timeout": 30,
+            "image_format": "png",
+            "seed": 12345
+        }
+
+        try:
+            logger.info(f"🧪 Testing API endpoint: {self.API_ENDPOINT}")
+            response = await asyncio.to_thread(
+                self._sync_request, 
+                test_payload, 
+                timeout=30
+            )
+            if response and "data" in response and response["data"]:
+                logger.info("✅ API endpoint is working")
+                return True
+            else:
+                logger.warning("❌ API test failed - empty response")
+                return False
+        except Exception as e:
+            logger.error(f"❌ API test failed: {e}")
+            return False
+
+    def get_model_info(self) -> dict:
+        """Get information about available models"""
+        return {
+            "flux": {
+                "name": "Flux",
+                "description": "High-quality, detailed image generation",
+                "best_for": "Professional artwork, detailed scenes"
+            },
+            "turbo": {
+                "name": "Turbo",
+                "description": "Fast generation with good quality",
+                "best_for": "Quick prototypes, general use"
+            },
+            "gptimage": {
+                "name": "GPT Image",
+                "description": "Advanced AI model for creative images",
+                "best_for": "Creative artwork, concept art"
+            }
+        }
