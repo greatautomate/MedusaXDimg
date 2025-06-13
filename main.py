@@ -45,7 +45,7 @@ class MedusaXDBot:
         """Initialize the bot and database"""
         try:
             await self.db.connect()
-            logger.info("✅ Database connected successfully")
+            logger.info("Database connected successfully")
 
             # Add default admin if not exists
             if self.config.ADMIN_IDS:
@@ -53,9 +53,9 @@ class MedusaXDBot:
                     await self.db.add_admin(admin_id)
                     await self.db.add_authorized_user(admin_id)
 
-            logger.info("✅ Bot initialized successfully")
+            logger.info("Bot initialized successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize bot: {e}")
+            logger.error(f"Failed to initialize bot: {e}")
             sys.exit(1)
 
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -70,7 +70,7 @@ class MedusaXDBot:
         bot_status = await self.db.get_bot_status()
         if not bot_status.get('enabled', True):
             await update.message.reply_text(
-                "🚫 **MedusaXD Bot is currently disabled.**\n\n"
+                "🚫 *MedusaXD Bot is currently disabled.*\n\n"
                 "Please try again later.",
                 parse_mode='Markdown'
             )
@@ -79,7 +79,7 @@ class MedusaXDBot:
         # Check if user is authorized
         if not await self.db.is_user_authorized(user_id):
             await update.message.reply_text(
-                "🔒 **Access Denied**\n\n"
+                "🔒 *Access Denied*\n\n"
                 "You are not authorized to use MedusaXD Image Generator Bot.\n"
                 "Please contact an administrator for access.",
                 parse_mode='Markdown'
@@ -90,25 +90,25 @@ class MedusaXDBot:
         if await self.db.is_user_banned(user_id):
             ban_info = await self.db.get_ban_info(user_id)
             await update.message.reply_text(
-                f"🚫 **You are banned from using this bot**\n\n"
-                f"**Reason:** {ban_info.get('reason', 'No reason provided')}\n"
-                f"**Banned on:** {ban_info.get('banned_at', 'Unknown')}\n\n"
+                f"🚫 *You are banned from using this bot*\n\n"
+                f"*Reason:* {ban_info.get('reason', 'No reason provided')}\n"
+                f"*Banned on:* {ban_info.get('banned_at', 'Unknown')}\n\n"
                 "Contact an administrator if you believe this is an error.",
                 parse_mode='Markdown'
             )
             return
 
         welcome_message = (
-            "🎨 **Welcome to MedusaXD Image Generator Bot!**\n\n"
+            "🎨 *Welcome to MedusaXD Image Generator Bot!*\n\n"
             "Generate stunning AI images with simple text prompts!\n\n"
-            "**Available Commands:**\n"
+            "*Available Commands:*\n"
             "🖼️ `/generate <prompt>` - Generate an image\n"
             "📊 `/models` - View available AI models\n"
             "ℹ️ `/help` - Get detailed help\n"
             "👤 `/profile` - View your profile\n\n"
-            "**Example:**\n"
+            "*Example:*\n"
             "`/generate A majestic dragon flying over a crystal castle at sunset`\n\n"
-            "✨ *Let your imagination run wild!*"
+            "✨ _Let your imagination run wild!_"
         )
 
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
@@ -120,7 +120,7 @@ class MedusaXDBot:
         if update and hasattr(update, 'effective_message'):
             try:
                 await update.effective_message.reply_text(
-                    "❌ **An error occurred while processing your request.**\n\n"
+                    "❌ *An error occurred while processing your request.*\n\n"
                     "Please try again later or contact an administrator.",
                     parse_mode='Markdown'
                 )
@@ -165,9 +165,9 @@ class MedusaXDBot:
 
         try:
             await app.bot.set_my_commands(commands)
-            logger.info("✅ Bot commands menu set successfully")
+            logger.info("Bot commands menu set successfully")
         except Exception as e:
-            logger.error(f"❌ Failed to set bot commands: {e}")
+            logger.error(f"Failed to set bot commands: {e}")
 
     async def run(self):
         """Run the bot"""
@@ -187,16 +187,29 @@ class MedusaXDBot:
             # Log bot startup
             await self.bot_logger.log_system_event("Bot started successfully", "STARTUP")
 
-            logger.info("🚀 MedusaXD Bot is starting...")
+            logger.info("MedusaXD Bot is starting...")
 
-            # Start polling (background worker mode)
-            await app.run_polling(
-                drop_pending_updates=True,
-                allowed_updates=Update.ALL_TYPES
-            )
+            # Start polling - Fixed method call
+            async with app:
+                await app.initialize()
+                await app.start()
+                await app.updater.start_polling()
+
+                logger.info("Bot is running! Press Ctrl+C to stop.")
+
+                # Keep the bot running
+                try:
+                    while True:
+                        await asyncio.sleep(1)
+                except KeyboardInterrupt:
+                    logger.info("Received stop signal")
+
+                await app.updater.stop()
+                await app.stop()
+                await app.shutdown()
 
         except Exception as e:
-            logger.error(f"❌ Failed to start bot: {e}")
+            logger.error(f"Failed to start bot: {e}")
             await self.bot_logger.log_system_event(f"Bot startup failed: {e}", "ERROR")
             sys.exit(1)
 
