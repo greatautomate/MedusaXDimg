@@ -31,7 +31,7 @@ class BotLogger:
 
             log_message = (
                 f"🎨 *IMAGE GENERATED*\n\n"
-                f"*👤 User:* @{safe_username} \$`{user_id}`\$\n"
+                f"*👤 User:* @{safe_username} (`{user_id}`)\n"
                 f"*🤖 Model:* `{model}`\n"
                 f"*📐 Aspect:* `{aspect_ratio}`\n"
                 f"*🖼️ Images:* {len(image_urls)}\n"
@@ -67,7 +67,7 @@ class BotLogger:
 
             log_message = (
                 f"👤 *USER ACTION*\n\n"
-                f"*User:* @{safe_username} \$`{user_id}`\$\n"
+                f"*User:* @{safe_username} (`{user_id}`)\n"
                 f"*Action:* `{safe_action}`\n"
                 f"*Type:* {action_type}\n"
                 f"*Time:* {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
