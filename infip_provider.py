@@ -1,15 +1,15 @@
 """
-MedusaXD Image Generator - Enhanced Error Handling
-Fixed JSON decode errors with comprehensive debugging
+MedusaXD Image Generator - AIWorldCreator API Provider (Fixed)
+Fixed to match the exact API specification and handle JSON decode errors
 """
 
 import requests
 import asyncio
 import random
 import time
+import json
 from typing import Optional, List
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
@@ -24,163 +24,180 @@ class ImageResponse:
         self.data = data
 
 class MedusaXDImageGenerator:
-    """Enhanced MedusaXD Image Generator with robust error handling"""
+    """
+    MedusaXD Image Generator using AIWorldCreator API
+    Fixed to match exact API specification
+    """
 
+    # Exact models from API
     AVAILABLE_MODELS = ["flux", "turbo", "gptimage"]
 
+    # Standard aspect ratios that work with the API
     ASPECT_RATIOS = {
         "landscape": "16:9",
         "portrait": "9:16", 
         "square": "1:1",
-        "photo": "4:3",
-        "classic": "3:2",
         "wide": "21:9",
-        "golden": "1.618:1",
         "cinema": "2.35:1",
-        "poster": "3:4"
+        "photo": "4:3"
     }
 
+    # Standard sizes that work with the API
     SIZE_MAPPING = {
         "landscape": "1344x768",
         "portrait": "768x1344",
         "square": "1024x1024",
-        "photo": "1024x768",
-        "classic": "1024x683",
-        "wide": "1344x576",
-        "golden": "1024x633",
+        "wide": "1344x576", 
         "cinema": "1344x572",
-        "poster": "768x1024"
+        "photo": "1024x768"
     }
 
-    # Multiple API endpoints for fallback
-    API_ENDPOINTS = [
-        "https://aiworldcreator.com/v1/images/generations",
-        "https://api.aiworldcreator.com/v1/images/generations",  # Alternative subdomain
-        "https://aiworldcreator.com/api/v1/images/generations"   # Alternative path
-    ]
+    # API endpoint
+    API_ENDPOINT = "https://aiworldcreator.com/v1/images/generations"
 
     def __init__(self):
-        """Initialize with enhanced session configuration"""
+        """Initialize with proper session configuration"""
         self.session = requests.Session()
 
-        # Enhanced headers
+        # Set headers exactly as shown in API docs
         self.session.headers.update({
             "accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": "MedusaXD-Bot/2.0 (AI Image Generator)",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Cache-Control": "no-cache"
+            "User-Agent": "MedusaXD-Bot/2.0"
         })
 
-    async def _make_request_with_retry(self, payload: dict, max_retries: int = 3) -> dict:
-        """Enhanced request method with comprehensive error handling"""
+    def _create_payload(self, prompt: str, model: str, num_images: int, 
+                       aspect_ratio: str, style: str, seed: int) -> dict:
+        """Create API payload matching exact specification"""
 
-        for attempt in range(max_retries):
-            for endpoint_idx, endpoint in enumerate(self.API_ENDPOINTS):
-                try:
-                    logger.info(f"🎨 Attempt {attempt + 1}/{max_retries} using endpoint {endpoint_idx + 1}")
+        size = self.SIZE_MAPPING.get(aspect_ratio, "1024x1024")
+        api_aspect_ratio = self.ASPECT_RATIOS.get(aspect_ratio, "1:1")
 
-                    if attempt > 0:
-                        delay = min(2 ** attempt + random.uniform(0, 2), 15)
-                        logger.info(f"⏳ Waiting {delay:.1f}s before retry...")
-                        await asyncio.sleep(delay)
+        # Create payload exactly matching API specification
+        payload = {
+            "prompt": prompt,
+            "model": model,
+            "n": num_images,
+            "size": size,
+            "response_format": "url",
+            "user": "medusaxd-user",
+            "style": style,
+            "aspect_ratio": api_aspect_ratio,
+            "timeout": 60,
+            "image_format": "png",
+            "seed": seed
+        }
 
-                    # Make the request with enhanced debugging
-                    response = await asyncio.to_thread(
-                        self._sync_request_debug, 
-                        endpoint,
-                        payload, 
-                        timeout=60
-                    )
+        return payload
 
-                    if response and "data" in response and response["data"]:
-                        logger.info(f"✅ Successfully generated image using endpoint {endpoint_idx + 1}")
-                        return response
-                    else:
-                        logger.warning(f"⚠️ Empty or invalid response from endpoint {endpoint_idx + 1}")
-                        continue
+    async def _make_api_request(self, payload: dict, timeout: int = 90) -> dict:
+        """Make API request with comprehensive error handling"""
 
-                except requests.exceptions.Timeout:
-                    logger.warning(f"⏰ Timeout on endpoint {endpoint_idx + 1}")
-                    continue
-
-                except requests.exceptions.ConnectionError as e:
-                    logger.warning(f"🔌 Connection error on endpoint {endpoint_idx + 1}: {e}")
-                    continue
-
-                except requests.exceptions.HTTPError as e:
-                    status_code = e.response.status_code if e.response else 0
-                    logger.warning(f"🔥 HTTP {status_code} error on endpoint {endpoint_idx + 1}")
-
-                    # Log response content for debugging
-                    if e.response:
-                        try:
-                            response_text = e.response.text[:500]
-                            logger.error(f"Response content: {response_text}")
-                        except:
-                            pass
-                    continue
-
-                except json.JSONDecodeError as e:
-                    logger.error(f"❌ JSON decode error on endpoint {endpoint_idx + 1}: {e}")
-                    continue
-
-                except Exception as e:
-                    logger.error(f"❌ Unexpected error on endpoint {endpoint_idx + 1}: {e}")
-                    continue
-
-            # Wait between full retry cycles
-            if attempt < max_retries - 1:
-                wait_time = (attempt + 1) * 10
-                logger.info(f"😴 All endpoints failed, waiting {wait_time}s before next cycle...")
-                await asyncio.sleep(wait_time)
-
-        raise RuntimeError("All API endpoints failed after maximum retries")
-
-    def _sync_request_debug(self, endpoint: str, payload: dict, timeout: int) -> dict:
-        """Enhanced synchronous request with comprehensive debugging"""
         try:
-            logger.info(f"🔗 Making request to: {endpoint}")
+            logger.info(f"🔗 Making request to: {self.API_ENDPOINT}")
             logger.info(f"📦 Payload: {json.dumps(payload, indent=2)}")
 
-            response = self.session.post(
-                endpoint,
-                json=payload,
-                timeout=timeout
+            # Make synchronous request in thread
+            response = await asyncio.to_thread(
+                self._sync_request,
+                payload,
+                timeout
             )
 
-            logger.info(f"📊 Response status: {response.status_code}")
-            logger.info(f"📋 Response headers: {dict(response.headers)}")
+            return response
 
-            # Check if response is empty
+        except Exception as e:
+            logger.error(f"❌ API request failed: {e}")
+            raise
+
+    def _sync_request(self, payload: dict, timeout: int) -> dict:
+        """Make synchronous request with detailed debugging"""
+
+        try:
+            # Make the POST request
+            response = self.session.post(
+                self.API_ENDPOINT,
+                json=payload,
+                timeout=timeout,
+                verify=True  # Ensure SSL verification
+            )
+
+            # Log response details
+            logger.info(f"📊 Response Status: {response.status_code}")
+            logger.info(f"📋 Response Headers: {dict(response.headers)}")
+
+            # Check if we got any content
             if not response.content:
-                logger.error("❌ Empty response content")
+                logger.error("❌ API returned empty response")
                 raise RuntimeError("API returned empty response")
 
-            # Log first 200 chars of response for debugging
-            content_preview = response.text[:200] if response.text else "No content"
-            logger.info(f"📄 Response preview: {content_preview}")
+            # Log response content (first 500 chars for debugging)
+            content_preview = response.text[:500] if response.text else "No content"
+            logger.info(f"📄 Response Content (preview): {content_preview}")
 
             # Check content type
-            content_type = response.headers.get('content-type', '')
+            content_type = response.headers.get('content-type', '').lower()
+            logger.info(f"📝 Content-Type: {content_type}")
+
+            # Handle different response types
+            if 'text/html' in content_type:
+                logger.error("❌ API returned HTML instead of JSON")
+                logger.error(f"HTML Response: {response.text[:1000]}")
+                raise RuntimeError("API returned HTML error page instead of JSON")
+
             if 'application/json' not in content_type:
-                logger.error(f"❌ Unexpected content type: {content_type}")
-                logger.error(f"Full response: {response.text}")
-                raise RuntimeError(f"API returned {content_type} instead of JSON")
+                logger.warning(f"⚠️ Unexpected content type: {content_type}")
 
-            response.raise_for_status()
+            # Check HTTP status
+            if response.status_code != 200:
+                logger.error(f"❌ HTTP Error {response.status_code}")
+                logger.error(f"Response body: {response.text}")
 
-            # Try to parse JSON with better error handling
+                if response.status_code == 400:
+                    raise ValueError(f"Bad request (400): {response.text}")
+                elif response.status_code == 401:
+                    raise RuntimeError("Unauthorized (401): Check API credentials")
+                elif response.status_code == 403:
+                    raise RuntimeError("Forbidden (403): Access denied")
+                elif response.status_code == 404:
+                    raise RuntimeError("Not found (404): API endpoint not found")
+                elif response.status_code == 429:
+                    raise RuntimeError("Rate limited (429): Too many requests")
+                elif response.status_code >= 500:
+                    raise RuntimeError(f"Server error ({response.status_code}): API server issue")
+                else:
+                    raise RuntimeError(f"HTTP error {response.status_code}: {response.text}")
+
+            # Try to parse JSON
             try:
-                return response.json()
-            except json.JSONDecodeError as e:
-                logger.error(f"❌ JSON decode failed: {e}")
-                logger.error(f"Raw response: {response.text}")
-                raise RuntimeError(f"Invalid JSON response: {str(e)}")
+                json_data = response.json()
+                logger.info("✅ Successfully parsed JSON response")
+                return json_data
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Request failed: {e}")
+            except json.JSONDecodeError as e:
+                logger.error(f"❌ JSON decode error: {e}")
+                logger.error(f"Raw response text: '{response.text}'")
+
+                # Check if response is actually empty
+                if not response.text.strip():
+                    raise RuntimeError("API returned empty response body")
+                else:
+                    raise RuntimeError(f"API returned invalid JSON: {str(e)}")
+
+        except requests.exceptions.Timeout:
+            logger.error("❌ Request timed out")
+            raise RuntimeError("Request timed out - API may be slow or down")
+
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"❌ Connection error: {e}")
+            raise RuntimeError("Failed to connect to API - check internet connection")
+
+        except requests.exceptions.SSLError as e:
+            logger.error(f"❌ SSL error: {e}")
+            raise RuntimeError("SSL certificate error - API security issue")
+
+        except Exception as e:
+            logger.error(f"❌ Unexpected error: {e}")
             raise
 
     async def generate_images(
@@ -190,117 +207,121 @@ class MedusaXDImageGenerator:
         num_images: int = 1,
         aspect_ratio: str = "landscape",
         seed: Optional[int] = None,
-        timeout: int = 60,
+        timeout: int = 90,
         style: str = "realistic"
     ) -> ImageResponse:
-        """Generate images with enhanced error handling"""
+        """Generate images with the fixed API implementation"""
 
-        # Validate parameters
+        # Validate inputs
         if model not in self.AVAILABLE_MODELS:
-            raise ValueError(f"Model '{model}' not supported. Available models: {self.AVAILABLE_MODELS}")
+            raise ValueError(f"Model '{model}' not supported. Available: {self.AVAILABLE_MODELS}")
 
         if num_images < 1 or num_images > 4:
             raise ValueError("Number of images must be between 1 and 4")
 
         if aspect_ratio not in self.ASPECT_RATIOS:
-            logger.warning(f"Unknown aspect ratio '{aspect_ratio}', defaulting to 'landscape'")
-            aspect_ratio = "landscape"
+            logger.warning(f"Unknown aspect ratio '{aspect_ratio}', using 'square'")
+            aspect_ratio = "square"
 
         # Clean prompt
         prompt = prompt.strip()
         if len(prompt) < 2:
-            raise ValueError("Prompt must be at least 2 characters long")
+            raise ValueError("Prompt must be at least 2 characters")
 
-        if len(prompt) > 1000:
-            prompt = prompt[:1000]
-            logger.warning("⚠️ Prompt truncated to 1000 characters")
+        if len(prompt) > 500:
+            prompt = prompt[:500]
+            logger.warning("⚠️ Prompt truncated to 500 characters")
 
-        # Map parameters
-        size = self.SIZE_MAPPING.get(aspect_ratio, "1024x1024")
-        api_aspect_ratio = self.ASPECT_RATIOS[aspect_ratio]
-
+        # Generate seed if not provided
         if seed is None:
-            seed = random.randint(1, 1000000)
+            seed = random.randint(1, 999999)
 
-        # Create payload
-        payload = {
-            "prompt": prompt,
-            "model": model,
-            "n": num_images,
-            "size": size,
-            "response_format": "url",
-            "user": "medusaxd-bot",
-            "style": style,
-            "aspect_ratio": api_aspect_ratio,
-            "timeout": timeout,
-            "image_format": "png",
-            "seed": seed
-        }
+        # Create API payload
+        payload = self._create_payload(prompt, model, num_images, aspect_ratio, style, seed)
 
         try:
-            logger.info(f"🎨 Generating {num_images} image(s) with {model}")
+            logger.info(f"🎨 Generating {num_images} image(s) with {model.upper()}")
             logger.info(f"📝 Prompt: {prompt}")
+            logger.info(f"📐 Aspect: {aspect_ratio} | 🎨 Style: {style}")
 
-            # First test API connectivity
-            if not await self.test_connection():
-                raise RuntimeError("API connectivity test failed - service may be down")
+            # Make API request
+            result = await self._make_api_request(payload, timeout)
 
-            # Make request with retry logic
-            result = await self._make_request_with_retry(payload, max_retries=3)
+            # Validate response structure
+            if not isinstance(result, dict):
+                raise RuntimeError(f"API returned invalid response type: {type(result)}")
 
-            # Process response
+            if "data" not in result:
+                logger.error(f"API response missing 'data' field: {result}")
+                raise RuntimeError("API response missing 'data' field")
+
+            if not isinstance(result["data"], list):
+                raise RuntimeError("API response 'data' field is not a list")
+
+            if not result["data"]:
+                raise RuntimeError("API returned empty data array")
+
+            # Process image data
             result_data = []
-            for item in result["data"]:
-                if "url" in item and item["url"]:
-                    result_data.append(ImageData(url=item["url"]))
+            for i, item in enumerate(result["data"]):
+                if not isinstance(item, dict):
+                    logger.warning(f"Invalid item {i} in response data")
+                    continue
+
+                if "url" not in item:
+                    logger.warning(f"Item {i} missing 'url' field")
+                    continue
+
+                if not item["url"]:
+                    logger.warning(f"Item {i} has empty URL")
+                    continue
+
+                result_data.append(ImageData(url=item["url"]))
 
             if not result_data:
                 raise RuntimeError("No valid images in API response")
 
             logger.info(f"✅ Successfully generated {len(result_data)} image(s)")
-            return ImageResponse(created=result.get("created", int(time.time())), data=result_data)
+
+            return ImageResponse(
+                created=result.get("created", int(time.time())), 
+                data=result_data
+            )
 
         except Exception as e:
             logger.error(f"❌ Image generation failed: {e}")
             raise
 
     async def test_connection(self) -> bool:
-        """Test API connectivity with simple request"""
+        """Test API connection with minimal request"""
         test_payload = {
             "prompt": "test",
             "model": "turbo",
             "n": 1,
             "size": "512x512",
-            "response_format": "url",
+            "response_format": "url", 
             "user": "test",
             "style": "realistic",
             "aspect_ratio": "1:1",
-            "timeout": 15,
+            "timeout": 30,
             "image_format": "png",
             "seed": 12345
         }
 
-        for endpoint in self.API_ENDPOINTS:
-            try:
-                logger.info(f"🧪 Testing endpoint: {endpoint}")
+        try:
+            logger.info("🧪 Testing API connection...")
+            result = await self._make_api_request(test_payload, timeout=30)
 
-                response = await asyncio.to_thread(
-                    self._sync_request_debug, 
-                    endpoint,
-                    test_payload, 
-                    timeout=15
-                )
+            if result and "data" in result:
+                logger.info("✅ API connection test successful")
+                return True
+            else:
+                logger.warning("❌ API test failed - invalid response")
+                return False
 
-                if response:
-                    logger.info(f"✅ Endpoint {endpoint} is working")
-                    return True
-
-            except Exception as e:
-                logger.warning(f"❌ Endpoint {endpoint} failed: {e}")
-                continue
-
-        logger.error("❌ All API endpoints are down")
-        return False
+        except Exception as e:
+            logger.error(f"❌ API connection test failed: {e}")
+            return False
 
     def get_models(self) -> List[str]:
         return self.AVAILABLE_MODELS.copy()
@@ -316,13 +337,13 @@ class MedusaXDImageGenerator:
                 "best_for": "Professional artwork, detailed scenes"
             },
             "turbo": {
-                "name": "Turbo", 
-                "description": "Fast generation with good quality",
+                "name": "Turbo",
+                "description": "Fast generation with good quality", 
                 "best_for": "Quick prototypes, general use"
             },
             "gptimage": {
                 "name": "GPT Image",
-                "description": "Creative AI generation", 
+                "description": "Creative AI generation",
                 "best_for": "Creative artwork, concept art"
             }
         }
